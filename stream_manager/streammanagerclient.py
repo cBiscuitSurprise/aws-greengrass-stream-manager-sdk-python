@@ -191,29 +191,38 @@ class StreamManagerClient:
         # Continually try to read packets from the socket
         while not self.__closed:
             try:
-                try:
-                    self.__log_trace("Starting long poll read")
-                    response = await self.__read_message_frame()
-                    self.__log_trace("Got message frame from server: %s", response)
-                except asyncio.IncompleteReadError:
-                    if self.__closed:
-                        return
-                    self.logger.error("Unable to read from socket, likely socket is closed or server died")
-                    self.connected = False
-                    try:
-                        await self.__connect()
-                    except ConnectionError:
-                        # Already logged in __connect, so just ignore it here
-                        pass
-                    except ConnectFailedException:
-                        # Already logged in __connect_request_response, so just ignore it here
-                        pass
+                self.__log_trace("Starting long poll read")
+                response = await self.__read_message_frame()
+                self.__log_trace("Got message frame from server: %s", response)
+            except asyncio.IncompleteReadError:
+                if self.__closed:
                     return
+                self.logger.error("Unable to read from socket, likely socket is closed or server died")
+                self.connected = False
+                try:
+                    await self.__connect()
+                except ConnectionError:
+                    # Already logged in __connect, so just ignore it here
+                    pass
+                except ConnectFailedException:
+                    # Already logged in __connect_request_response, so just ignore it here
+                    pass
+                return
 
+            try:
                 payload = cbor2.loads(response.payload)
                 await self.__handle_read_response(payload, response)
             except Exception:
-                self.logger.exception("Unhandled exception occurred")
+                self.logger.exception(f"Unhandled exception occurred on payload {response.payload}")
+                self.connected = False
+                try:
+                    await self.__connect()
+                except ConnectionError:
+                    # Already logged in __connect, so just ignore it here
+                    pass
+                except ConnectFailedException:
+                    # Already logged in __connect_request_response, so just ignore it here
+                    pass
                 return
 
     async def __handle_read_response(self, payload, response):
